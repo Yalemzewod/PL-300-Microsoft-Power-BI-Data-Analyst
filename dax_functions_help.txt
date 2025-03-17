@@ -1,0 +1,371 @@
+
+
+// Add column of the first treatment date 
+
+FIRST_TREATMENT_DATE = 
+    VAR MinDate = CALCULATE(
+        MIN(TREATMENT_TABLE[TREATMENT_DATE]), 
+        ALLEXCEPT(TREATMENT_TABLE,TREATMENT_TABLE[PID_DIAGNOSTI_DATE])
+    )
+    RETURN IF(TREATMENT_TABLE[TREATMENT_DATE] = MinDate, MinDate, BLANK()
+    )
+
+// Add column of the first treatment type 
+
+FIRST_TREATMENT_TYPE = 
+    VAR 
+    MinDate = CALCULATE(
+        MIN(TREATMENT_TABLE[TREATMENT_DATE]), 
+        ALLEXCEPT(TREATMENT_TABLE, TREATMENT_TABLE[PID_DIAGNOSTI_DATE])
+    )
+    RETURN IF(TREATMENT_TABLE[FIRST_TREATMENT_DATE] = MinDate, TREATMENT_TABLE[TREATMENT_TYPE], 
+    BLANK()
+)
+
+// Add measures of the number of diagnoses
+
+Number_of_diagnoses = COUNTROWS(WACR_INCIDENCE)
+
+// Add measures Avergae days from first treatment
+AverageDaysToTreatment = AVERAGEX(
+    FILTER(
+        TREATMENT_TABLE,
+        NOT(ISBLANK(TREATMENT_TABLE[DAYS_TO_FIRST_TREATMENT]))
+    ),
+    TREATMENT_TABLE[DAYS_TO_FIRST_TREATMENT]
+
+// calculate surgery first treatment
+count_surgery_treatment = 
+    CALCULATE(
+        DISTINCTCOUNT(TREATMENT_TABLE[PID_DIAGNOSTI_DATE]),
+        NOT(ISBLANK(TREATMENT_TABLE[FIRST_TREATMENT_TYPE])) && TREATMENT_TABLE[FIRST_TREATMENT_TYPE] = "Surgery"
+    )
+// calculate chemo first treatment
+count_chemo_treatment = 
+    CALCULATE(
+        DISTINCTCOUNT(TREATMENT_TABLE[PID_DIAGNOSTI_DATE]),
+        NOT(ISBLANK(TREATMENT_TABLE[FIRST_TREATMENT_TYPE])) && TREATMENT_TABLE[FIRST_TREATMENT_TYPE] = "Chemotherapy"
+    )
+
+// Days Between Surgery and Death
+
+Days_surgery_to_death = 
+DATEDIFF(
+    MIN('WACR_INCIDENCE'[DATE_OF_DEATH]),
+    MIN('TREATMENT_TABLE'[FIRST_TREATMENT_DATE]),
+    DAY
+)
+
+// calculate days from surgery to death
+SURGERY_TO_DEATH  = 
+
+VAR st_date = CALCULATE(
+    MIN(TREATMENT_TABLE[FIRST_TREATMENT_DATE].[Date]),
+    TREATMENT_TABLE[FIRST_TREATMENT_TYPE] ="Surgery",
+    RELATEDTABLE(TREATMENT_TABLE)
+    )
+    RETURN
+    DATEDIFF(
+        MIN(WACR_INCIDENCE[DATE_OF_DEATH].[Date]), st_date,
+        DAY)
+
+// Calculate the number of diagnosis where the patient is aged 50 or above
+num_dx_aged_50_above = 
+IF(
+    ISBLANK(
+        CALCULATE(
+            DISTINCTCOUNT(
+                WACR_INCIDENCE[PID_DIAGNOSTI_DATE]), WACR_INCIDENCE[AGE_AT_DIAGNOSIS]<=50)),
+                 0,
+                 CALCULATE(
+                    DISTINCTCOUNT(
+                       WACR_INCIDENCE[PID_DIAGNOSTI_DATE]), WACR_INCIDENCE[AGE_AT_DIAGNOSIS]<=50)
+) 
+
+// Calculate the number of diagnosis where the patient is aged 19 or under
+
+num_dx_aged_19_under = 
+IF(
+    ISBLANK(
+        CALCULATE(
+            DISTINCTCOUNT(
+                WACR_INCIDENCE[PID_DIAGNOSTI_DATE]), WACR_INCIDENCE[AGE_AT_DIAGNOSIS]<=19)),
+                 0,
+                 CALCULATE(
+                    DISTINCTCOUNT(
+                       WACR_INCIDENCE[PID_DIAGNOSTI_DATE]), WACR_INCIDENCE[AGE_AT_DIAGNOSIS]<=19)
+) 
+
+// count ATSI 
+
+num_atsi = CALCULATE(
+    DISTINCTCOUNT(
+        WACR_INCIDENCE[PID_DIAGNOSTI_DATE]),
+        WACR_INCIDENCE[ABORIGINAL_STATUS] IN {"Aboriginal", "Torres Strait Island", "Aboriginal and TSI", "Indigenous NOS"}
+        ) 
+
+
+// Calculate multiple tumour sites
+multiple_tumour = CALCULATE(
+    COUNTROWS(TUMOUR_SITE_CODE) - COUNTROWS(DISTINCT(TUMOUR_SITE_CODE[PID_DIAGNOSTI_DATE])
+))
+
+
+// Calculate the 30 and 90 days mortality 
+// Create a separate table for counting the 30 and 90 days mortality with 
+
+count_mortality = SUMMARIZECOLUMNS(TREATMENT_TABLE[PID_DIAGNOSTI_DATE],
+"death_days", MIN(TREATMENT_TABLE[SURGERY_TO_DEATH]))
+
+// Then calculating 
+count_30_Days_Mort = calculate(countrows(count_mortality), count_mortality[death_days] <= 30) 
+
+count_90_Days_Mort = calculate(countrows(count_mortality), count_mortality[death_days] <= 90)
+
+// Re-grouping with "Yes" and "No"
+
+30days_mort = IF(count_mortality[death_days]<=30, "Yes", "No")
+
+90days_mort = IF(count_mortality[death_days]<=90, "Yes", "No")
+
+// SS COLUMN FOR patients who received surgery within 30 days of  diagnosis
+
+30_days_treatment = 
+IF(
+    NOT(ISBLANK(TREATMENT_TABLE[DAYS_TO_FIRST_TREATMENT])) &&
+    TREATMENT_TABLE[FIRST_TREATMENT_TYPE] = "Surgery" &&
+    TREATMENT_TABLE[DAYS_TO_FIRST_TREATMENT] <=30,
+    "Yes",
+    BLANK()
+) 
+
+// add column for patients who received surgery within 90 days of  diagnosis
+90_days_treatment = 
+IF(
+    NOT(ISBLANK(TREATMENT_TABLE[DAYS_TO_FIRST_TREATMENT])) &&
+    TREATMENT_TABLE[FIRST_TREATMENT_TYPE] = "Surgery" &&
+    TREATMENT_TABLE[DAYS_TO_FIRST_TREATMENT] <=90,
+    "Yes",
+    BLANK()
+) 
+
+// Calculate measures for patients who received surgery within 90 days of  diagnosis
+count_30days_treatment = 
+    CALCULATE(
+        DISTINCTCOUNT(TREATMENT_TABLE[PID_DIAGNOSTI_DATE]),
+        NOT(ISBLANK(TREATMENT_TABLE[30_days_treatment])) && TREATMENT_TABLE[30_days_treatment] = "Yes"
+    )
+
+// calculate total death
+total_death = 
+CALCULATE(DISTINCTCOUNT(WACR_INCIDENCE[PID_DIAGNOSTI_DATE]),WACR_INCIDENCE[DATE_OF_DEATH])
+
+// calculate tumour caused death
+cancer_caused_death = CALCULATE(
+    DISTINCTCOUNT(WACR_INCIDENCE[PID_DIAGNOSTI_DATE]),
+    NOT(ISBLANK(WACR_INCIDENCE[CAUSE_OF_DEATH_DUE_TO_TUMOUR])) &&
+    WACR_INCIDENCE[CAUSE_OF_DEATH_DUE_TO_TUMOUR] = TRUE()
+
+ 
+// Calculate patient aged 45 or above and diagnosed through the screening program
+num_scre_dx__aged_45_above = 
+CALCULATE(
+    DISTINCTCOUNT(WACR_INCIDENCE[PID_DIAGNOSTI_DATE]),
+    FILTER(
+        WACR_INCIDENCE,
+        WACR_INCIDENCE[DETECTION_METHOD] = "7" &&
+        WACR_INCIDENCE[AGE_AT_DIAGNOSIS] >= 45
+    )
+)
+
+DATE FORMAT
+
+--- Date short name format ---
+
+Dayshortname = 
+    FORMAT(
+     Dates[Date] , // 'Date' column in the 'Dates' tabel
+       ''ddd'')
+
+--- Month short name
+
+Montshortname = 
+    FORMAT(
+     Dates[Date] , // 'Date' column in the 'Dates' tabel
+       ''MM'')
+
+// Calculate the average (Mean) age of all diagnosis in the diagnosis date
+mean_diag_age = DIVIDE([total_dx_age], [num_diag]) 
+
+
+// Calculate the number of diagnosis where the patient is aged 19 or under
+num_diag_19under = 
+IF(
+    ISBLANK(
+        CALCULATE(
+            DISTINCTCOUNT(
+                data_wacr_diagnoses[PID_DIAG_DATE]),
+                // Ignore relationship with calndar separation
+               //REMOVEFILTERS(ref_CalendarToToday_seps),
+                // Ignore relationship with separation table
+                //REMOVEFILTERS(data_sep_cidr),
+                data_wacr_diagnoses[AGE_AT_DIAGNOSIS]<=19)),
+                 0,
+                 CALCULATE(
+                    DISTINCTCOUNT(
+                    data_wacr_diagnoses[PID_DIAG_DATE]),
+                   //REMOVEFILTERS(ref_CalendarToToday_seps),  
+                   //REMOVEFILTERS(data_sep_cidr),
+                    data_wacr_diagnoses[AGE_AT_DIAGNOSIS]<=19)
+) 
+
+ // Calculate the number of diagnosis where the patient is aged 45 or above
+
+num_diag_50+ = CALCULATE(
+    COUNTROWS(data_wacr_diagnoses),
+    data_wacr_diagnoses[AGE_AT_DIAGNOSIS] >= 50
+)
+
+
+// count ATSI 
+num_diag_atsi = CALCULATE(
+    COUNTROWS(
+        data_wacr_diagnoses),
+        // Ignore the relationship with treatment and separation table
+         //REMOVEFILTERS(ref_CalendarToToday_seps), 
+         //REMOVEFILTERS(data_sep_cidr),
+        data_wacr_diagnoses[ABORIGINAL_STATUS] IN {"1", "2", "3", "5"}
+        ) 
+
+// the number of diagnoses related sep_cidr entry - capturing diagnosed and have hospital related information
+
+num_diag = COUNTROWS(data_wacr_diagnoses)
+
+ // Calculate the number who diagnosed the detection method through screening
+
+num_diag_screening = 
+CALCULATE(
+    COUNTROWS(data_wacr_diagnoses),
+    // Ignore the relationship with separation table
+     // REMOVEFILTERS(ref_CalendarToToday_seps), 
+     // REMOVEFILTERS(data_sep_cidr),
+    FILTER(
+        data_wacr_diagnoses,
+        data_wacr_diagnoses[DETECTION_METHOD] = "7" 
+    )
+)
+
+// Calculate persons with morethan one primary tumour sites (CRC tumours only)
+
+num_multiple_tumour = CALCULATE(
+    COUNTROWS(data_tumour_site_code) - COUNTROWS(DISTINCT(data_tumour_site_code[PID_DIAG_DATE])
+)) 
+
+// title
+
+title_funnel_ihm_x = CONCATENATE(max(data_full_treatment_table[DAYS_FROM_SURGERY_TO_DEATH]), "-day In-Hospital Mortality Rates by Hospital (Funnel)")
+
+// Calculate mortality within 30 days following surgical resection as their first treatment
+
+num_postsurgery_mort = 
+COALESCE(
+    CALCULATE(
+        COUNTROWS(data_wacr_diagnoses), 
+        // Only those with post surgery
+        -- data_full_treatment_table[FIRST_TREATMENT_FLAG] = 1,
+        data_full_treatment_table[TREATMENT_TYPE] = "Surgery",
+        // Those who died within 30 days of surgery
+        data_wacr_diagnoses[IsDeceased] = "Yes",
+        // data_TREATMENT_TABLE[DAYS_FROM_SURGERY_TO_DEATH] <= 30,
+        data_full_treatment_table[DAYS_FROM_SURGERY_TO_DEATH] <> BLANK()
+    ),
+    0
+) 
+
+ // count those who received treatment from diagnoiss 
+num_all_treat_Cea = CALCULATE(
+    COUNTROWS(data_wacr_diagnoses),
+    NOT(ISBLANK(data_full_treatment_table[TREATMENT_DATE_DIAG])),
+    REMOVEFILTERS(data_cea_pathology[TREATMENT_FLAG])
+    )
+
+// count the number of surgery per person from diagnosis
+num_cea_den = calculate(
+    COUNTROWS(
+    data_wacr_diagnoses), 
+    NOT(ISBLANK(data_full_treatment_table[TREATMENT_DATE_DIAG])),
+     REMOVEFILTERS(data_full_treatment_table[CEA_Status])
+    )
+  
+// count the number of Chemotherapy or radiotherapy treatment per person from diagnosis
+num_chemo_radio = calculate(COUNTROWS(
+    data_wacr_diagnoses), 
+     data_full_treatment_table[CHEMOTHERAPY_FLAG] = 1 || data_full_treatment_table[RADIOTHERAPY_FLAG] = 1 
+    )
+
+// anastomosis complication flag surgery
+
+Complication_AnastomosisFlag = 
+IF(
+    data_full_treatment_table[TREATMENT_TYPE] = "Surgery",
+    IF(
+    CONTAINSSTRING(LOWER(data_full_treatment_table[Complications_type]), "anastomosis"),
+    1,
+    0
+),
+BLANK()
+)
+
+// complication during surgery treatment
+Complications_type = 
+IF (
+    data_full_treatment_table[TREATMENT_TYPE] = "Surgery",
+
+        CONCATENATEX(
+            FILTER(
+                data_anastomic_complication,
+                data_anastomic_complication[EVENT_ID] = data_full_treatment_table[EVENT_ID]
+            ),
+            data_anastomic_complication[SHORT_DESCRIPTION],
+            ", "
+        ),
+    BLANK()
+)
+
+// add cea values for Nearest Test Date after treatment
+
+CEA_Result_Nearest_After_Treatment = 
+CALCULATE(
+    FIRSTNONBLANK(data_cea_pathology[ADJUSTED_OBSERVATIONVALUE], 1),
+    FILTER(
+        data_cea_pathology,
+        data_cea_pathology[RESULTSRPTSTATUSCHNGDATETIME_OBS] = data_full_treatment_table[Dates_Nearest_Test_After_Treatment] &&
+        data_cea_pathology[EVENT_ID] = data_full_treatment_table[EVENT_ID]
+    )
+)
+
+// Add Dates of the Nearest Test After treatment 
+Dates_Nearest_Test_After_Treatment = 
+CALCULATE(
+    MIN(data_cea_pathology[RESULTSRPTSTATUSCHNGDATETIME_OBS]),
+    FILTER(
+        RELATEDTABLE(data_cea_pathology),
+        // data_TREATMENT_TABLE[TREATMENT_TYPE] = "Surgery" &&
+        data_cea_pathology[RESULTSRPTSTATUSCHNGDATETIME_OBS] > data_full_treatment_table[TREATMENT_DATE]
+    )
+)
+
+// Add a Flag for Tests Before surgical resection in the Treatment Table
+
+CEA_BEFORE_TREATMENT = 
+IF(
+    data_full_treatment_table[TREATMENT_TYPE] <> "None" &&
+    COUNTROWS(
+        FILTER(
+            RELATEDTABLE(data_cea_pathology),
+            data_cea_pathology[RESULTSRPTSTATUSCHNGDATETIME_OBS] < data_full_treatment_table[TREATMENT_DATE]
+        )
+    ) > 0,
+    1,
+    0
+)
